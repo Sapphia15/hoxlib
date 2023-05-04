@@ -2,18 +2,7 @@
 
 ## Functions:
 
-### flatten(x,y,z,w,width,height,length,trength):
-*x* integer
-*y* integer
-*z* integer
-*w* integer
-*width* integer
-*height* integer
-*length* integer
-*trength* integer
-Returns an integer representing the input coordinates as a position in a context with the specified dimensions. This mapping can be inverted with the unflatten or unflattenQA functions.
-
-### flatten(x,y,z,w,width,height,length,trength):
+### flatten(x, y, z, w, width, height, length, trength):
 
 * `x` integer
 * `y` integer
@@ -28,19 +17,19 @@ Flattens a 4D coordinate to a 1D index.
 
 ---
 
-### flattenCA(p,width,height,length,trength):
+### flattenCA(p, width, height, length, trength):
 
-* `p` list of integers
+* `p` `point [x, y, z, w]` (list of integers)
 * `width` integer
 * `height` integer
 * `length` integer
 * `trength` integer
 
-Flattens a coordinate array to a 1D index using the `flatten` function.
+Flattens a 4D coordinate array to a 1D index using the `flatten` function.
 
 ---
 
-### unflatten(i,width,height,length,trength):
+### unflatten(i, width, height, length, trength):
 
 * `i` integer
 * `width` integer
@@ -48,11 +37,11 @@ Flattens a coordinate array to a 1D index using the `flatten` function.
 * `length` integer
 * `trength` integer
 
-Unflattens a 1D index to a dictionary of 4D coordinates.
+Unflattens a 1D index to a point dictionary.
 
 ---
 
-### unflattenCA(i,width,height,length,trength):
+### unflattenCA(i, width, height, length, trength):
 
 * `i` integer
 * `width` integer
@@ -64,7 +53,7 @@ Unflattens a 1D index to a coordinate array using the `unflatten` function.
 
 ---
 
-### writeInt(i,barray):
+### writeInt(i, barray):
 
 * `i` integer
 * `barray` list of bytes
@@ -75,13 +64,13 @@ Writes an integer to a byte array.
 
 ### hash(color):
 
-* `color` list of integers
+* `color` `color [r, g, b, a]` (list of integers)
 
 Hashes a color to a value between 0 and 63.
 
 ---
 
-### getMaxFileSize(width,height,length,trength,channels=4):
+### getMaxFileSize(width, height, length, trength, channels=4):
 
 * `width` integer
 * `height` integer
@@ -89,26 +78,26 @@ Hashes a color to a value between 0 and 63.
 * `trength` integer
 * `channels` integer
 
-Calculates the maximum file size for a hoxel model in bytes.
+Calculates the maximum file size for a hoxel model encoded with QOH in bytes.
 
 ---
 
-### compColor(c1,c2):
+### compColor(c1, c2):
 
-* `c1` list of integers
-* `c2` list of integers
+* `c1` `color [r, g, b, a]` (list of integers)
+* `c2` `color [r, g, b, a]` (list of integers)
 
 Compares two colors for equality.
 
 ---
 
-### saveModelQOH(model,path,verbose=False):
+### saveModelQOH(model, path, verbose=False):
 
-* `model` dictionary
+* `model` model dictionary
 * `path` string
 * `verbose` boolean (optional)
 
-Saves a hoxel model to a binary file in the QOH format.
+Saves a hoxel model in the QOH format.
 
 ---
 
@@ -116,16 +105,16 @@ Saves a hoxel model to a binary file in the QOH format.
 
 * `path` string
 
-Loads a hoxel model from a binary file in the QOH format.
+Loads a model dictionary from a QOH or HOX file.
 
 ---
 
-### saveModelHOX(model,path):
+### saveModelHOX(model, path):
 
-* `model` dictionary
+* `model` model dictionary
 * `path` string
 
-Saves a hoxel model to a text file in the HOX format.
+Saves a hoxel model in the HOX format.
 
 ---
 
@@ -133,4 +122,48 @@ Saves a hoxel model to a text file in the HOX format.
 
 * `path` string
 
-Loads a dictionary with data about a hoxel model from a binary file in the QOH format or a text file in the HOX format.
+Loads a HOX dictionary or a QOH dictionary with data about a hoxel model from a file in the QOH or HOX format.
+
+---
+
+##Dictionary Types
+
+###point
+* `x` integer
+* `y` integer
+* `z` integer
+* `w` integer
+
+---
+
+###model:
+* `col` list of `color [r, g, b, a]` (list of integers)
+* `width` integer
+* `height` integer
+* `length` integer
+* `trength` integer
+---
+
+### HOX
+*extends model*
+* `data` json data dictionary
+* `matColor` list of `color [r, g, b, a]` (list of integers)
+* `col` list of `color [r, g, b, a]` (list of integers)
+* `mat` list of integers
+* `width` integer
+* `height` integer
+* `length` integer
+* `trength` integer
+
+---
+
+###QOH
+*extends model*
+* `channels` integer
+* `col` list of `color [r, g, b, a]` (list of integers)
+* `width` integer
+* `height` integer
+* `length` integer
+* `trength` integer
+
+---
