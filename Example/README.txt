@@ -1,0 +1,1 @@
+The hoxel viewer can load any hoxel models that are in the hox folder. To select a file, use the the W and S keys and then press Enter when the desired file is selected. In the viewer use WASDQEShiftSpace to pan around.
