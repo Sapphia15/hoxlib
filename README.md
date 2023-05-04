@@ -13,7 +13,7 @@
 * `length` integer
 * `trength` integer
 
-Flattens a 4D coordinate to a 1D index.
+Flattens a 4D coordinate to a 1D index. Some 1D arrays such as `col` use the flattened value of a 4D coordinate as the index for its elements. For example, the value of `model["col"][flatten(1,2,3,4,model["width"],model["height"],model["length"],model["trength"])]` is an integer array with the the rgb values of the hoxel at (1,2,3,4) in the model stored in the `model` variable.
 
 ---
 
@@ -25,7 +25,7 @@ Flattens a 4D coordinate to a 1D index.
 * `length` integer
 * `trength` integer
 
-Flattens a 4D coordinate array to a 1D index using the `flatten` function.
+Flattens a 4D coordinate array to a 1D index using the `flatten` function. Some 1D arrays such as `col` use the flattened value of a 4D coordinate as the index for its elements. For example, the value of `model["col"][flatten([1,2,3,4],model["width"],model["height"],model["length"],model["trength"])]` is an integer array with the the rgb values of the hoxel at (1,2,3,4) in the model stored in the `model` variable.
 
 ---
 
