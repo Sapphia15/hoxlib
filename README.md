@@ -126,9 +126,9 @@ Loads a HOX dictionary or a QOH dictionary with data about a hoxel model from a 
 
 ---
 
-##Dictionary Types
+## Dictionary Types
 
-###point
+### point
 * `x` integer
 * `y` integer
 * `z` integer
@@ -136,7 +136,7 @@ Loads a HOX dictionary or a QOH dictionary with data about a hoxel model from a 
 
 ---
 
-###model:
+### model:
 * `col` list of `color [r, g, b, a]` (list of integers)
 * `width` integer
 * `height` integer
@@ -157,7 +157,7 @@ Loads a HOX dictionary or a QOH dictionary with data about a hoxel model from a 
 
 ---
 
-###QOH
+### QOH
 *extends model*
 * `channels` integer
 * `col` list of `color [r, g, b, a]` (list of integers)
