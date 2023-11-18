@@ -1,13 +1,18 @@
+#By Sapphia
+
 import json
 import os
 import traceback
 import time
 import copy
+from PIL import Image, ImageDraw
 directory = "hox"
 TO_HOX = 0
 TO_QOH = 1
+TO_SCH = 3
 HOX=2
 QOH=3
+SCH = 5
 
 EOF=bytes([0]*7+[1])
 
@@ -23,7 +28,74 @@ INDEX=int("00000000",2)
 DIF=int("01000000",2)
 LUMA=int("10000000",2)
 RUN=int("11000000",2)
+#Redjard integer encoding/decoding functions written by redjard
+#---------------------------------------------------------------------------------
+def serializeInt(num:int):
+    
+    num *= 2
+    if num < 0:
+        num = -num -1
+    
+    return serialize_uint(num)
 
+#Unsigned Int Serialization:
+
+#Big endian
+#The integer is serialized as the value of an Integer Chunk
+#  
+#Integer Chunk:
+#  length of integer value in bytes : 1 byte with non 0 value and a bias of 1 if preceded by x00, otherwise the bias is 0 or x00 followed by an integer chunk
+#  value of integer : the value of the integer that this chunk encodes using the number of bytes indicated by the length of integer value in bytes
+#
+#Examples:
+#
+#  /x01/x14 encodes 20 because the first byte indicates that the integer is one byte long while the second byte indicates the encoded value
+#  /x02/x01/x00 encodes 256 because the first byte indicates that the integer is two bytes long while the two bytes that follow indicate the encoded values as a two byte int
+#  /x00/x01/x01/x01/x01/(x00)*256 encodes 16^512 because the first byte indicates that the integer length is encoded as an Integer Chunk instead of as one byte so the second byte indicates that the value of of the length of the integer that inticates the length of the integer being serialized is 2 becuase it has a bias of 1 since it follows an x00 byte. The third and fourth bit indicate the value of the length of the integer being encoded as a two byte integer which is 257. The 257 bytes that come after the fourth byte encode the value of the integer being serialized as a 257 byte integer which has the value of 16^512.
+def serialize_uint(num:int):
+    
+    bitstr = b''
+    while num:
+        bitstr += bytes([ num %2**8 ])
+        num //= 2**8
+    bitstr = bitstr[::-1]
+    
+    if len(bitstr) == 0:
+        bitstr = b'\x00'
+    
+    if len(bitstr) >= 2**8:
+        return b'\x00' + serialize_uint(len(bitstr)-2**8) + bitstr
+    
+    return bytes([len(bitstr)]) + bitstr
+
+def unserializeInt(bitstr:int):
+    
+    num, bitstr = unserialize_uint(bitstr)
+    
+    if num %2:
+        num = -num -1
+    num >>= 1  # same as  //= 2  but faster
+    
+    return num, bitstr
+
+def unserialize_uint(bitstr:int):
+    
+    if bitstr[0] == 0:
+        numlen, bitstr = unserialize_uint(bitstr[1:])
+        numlen += 2**8
+    else:
+        numlen, bitstr = bitstr[0], bitstr[1:]
+    
+    if numlen > len(bitstr):
+        raise ValueError('Incomplete integer')
+    
+    num = 0
+    for bit in bitstr[:numlen]:
+        num *= 2**8
+        num += bit
+    
+    return num, bitstr[numlen:]
+#---------------------------------------------------------------------------------
 
 def flatten(x,y,z,w,width,height,length,trength):
     return x+y*width+z*width*height+w*width*height*length
@@ -56,6 +128,9 @@ def getMaxFileSize(width,height,length,trength,channels=4):
 def compColor(c1,c2):
     return (c1[0]==c2[0] and c1[1]==c2[1] and c1[2]==c2[2] and c1[3]==c2[3])
 
+def containsPoint(model,x,y,z,w):
+    return flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])<len(model["col"])
+
 """
 #flattening and unflattening testing
 
@@ -82,14 +157,14 @@ for i in range(8*8*8*8):
         print("Error! bad test!")
         input()
 """
-#returns a dictionary with data about a hoxel model including the color array, the dimensions, the material array (if applicable), the material color array (if applicable), the json data (if applicable), and the channels (if applicable)
+#returns a dictionary with data about a hoxel model including the color array, the dimensions, the material array (if applicable), the material color array (if applicable), the json data (if applicable), the block type array (if applicable), and the channels (if applicable)
 def loadHoxelModelData(path):
     filetype=HOX
-    if (path.endswith(".qoh")):
+    if (path.endswith(".qoh") or path.endswith(".qob")):
         filetype=QOH
-    elif (path.endswith(".qob")):
-        filetype=QOH
-
+    elif (path.endswith(".4dmscheme") or path.endswith(".4dm") or path.endswith(".sch")):
+        filetype=SCH
+    
     if (filetype==HOX):
         data={}
         col=[]
@@ -129,7 +204,7 @@ def loadHoxelModelData(path):
                 col[flatten(item["i"][0],item["i"][1],item["i"][2],item["i"][3],width,height,length,trength)]=[int(color[0]*255),int(color[1]*255), int(color[2]*255), color[3]] #non-alpha channels are stored in a range from 0.0 to 1.0 so we need to convert those to integers between 0 and 255
             #return a dictionary with the full data, the width, height, length, and trength, the material colors, and the array of hoxels by color, and the array of hoxels by material
             return {"data":data,"matColor":matColor,"col":col, "mat":mat,"width":width,"height":height,"length":length,"trength":trength}
-    else:
+    elif filetype==QOH:
         col=[]
         bins=bytearray("qohf","utf-8")
         prehox=[0,0,0,255]
@@ -231,6 +306,43 @@ def loadHoxelModelData(path):
                 #We always decode at least one bit
                 i=i+1
             return {"channels":channels,"col":col,"width":width,"height":height,"length":length,"trength":trength}
+    else:
+        blk=[]
+        col=[]
+        bins=bytearray("qohf","utf-8")
+        width=0
+        height=0
+        length=0
+        trength=0
+        with open(path, "rb") as f:
+            #print("Loading "+filename+"...")
+            #print("Converting data...")
+            bins=f.read()
+            width, bins=unserialize_uint(bins)
+            height, bins=unserialize_uint(bins)
+            length, bins=unserialize_uint(bins)
+            trength, bins=unserialize_uint(bins)
+            check, bins=unserialize_uint(bins) #this should set check to 0 if the file is 4D. If the file is of higher dimension this number will be larger than 0
+            if (check != 0 ):
+                print("Error: file has more than 4 dimesnions")
+                return
+            blk=[0]*width*height*length*trength
+            col=[[0,0,0,0]]*width*height*length*trength
+            c=0
+            for i in range(len(bins)-1):
+                btype=int.fromBytes(bins[i],"big")
+                i=i+1
+                runLength=int.fromBytes(bins[i])
+                if (runLength>0):
+                    blk[c:c-1+runLength]=btype
+                    #schematic files only have one byte that defines blocktype so we use greyscale based on blockID for color (with ID 0, air being tranparent)
+                    #The color array was initialized with 0s (tranparency) so we ony need to set the the color if the block ID is not 0
+                    if (btype!=0):
+                        col[c:c-1+runLength]=[btype,btype,btype,255]
+            return {"blk":blk,"col":col,"width":width,"height":height,"length":length,"trength":trength}
+                
+
+
         
 #returns a hoxel model as a dictionary with the color array, width, height, length, and trength.
 def loadHoxelModel(path):
@@ -393,3 +505,184 @@ def saveModelQOH(model,path,verbose=False):
         out.write(bytes(bins))
         if verbose:
             print("File conversion complete!")
+    
+def createEmpty(width,height,length,trength,bg=[0,0,0,0]):
+    return {"col":[bg]*width*length*trength*height,"width":width,"height": height,"length": length,"trength": trength}
+
+def colorArrayToModel(colorArray,width,height,length,trength):
+    return {"col":colorArray,"width":width,"height": height,"length": length,"trength": trength}
+
+def setHox(model,color,x,y,z,w):
+    index=flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])
+    model["col"][index]=color
+
+def hoxBox(model,color,x0,y0,z0,w0,x1,y1,z1,w1,hollow=False):
+    if (hollow):
+        hoxBox(model,color,x0,y0,z0,w0,x1,y1,z1,w0)
+        hoxBox(model,color,x0,y0,z0,w1,x1,y1,z1,w1)
+        hoxBox(model,color,x0,y0,z0,w0,x1,y1,z0,w1)
+        hoxBox(model,color,x0,y0,z1,w0,x1,y1,z1,w1)
+        hoxBox(model,color,x0,y0,z0,w0,x1,y0,z1,w1)
+        hoxBox(model,color,x0,y1,z0,w0,x1,y1,z1,w1)
+        hoxBox(model,color,x0,y0,z0,w0,x0,y1,z1,w1)
+        hoxBox(model,color,x1,y0,z0,w0,x1,y1,z1,w1)
+        return
+    startX=min(x0,x1)
+    xLength=abs(x1-x0)
+    startY=min(y0,y1)
+    startZ=min(z0,z1)
+    startW=min(w0,w1)
+    for y in range(abs(y1-y0)+1):
+        for z in range(abs(z1-z0)+1):
+            for w in range(abs(w1-w0)+1):
+                for x in range(abs(x1-x0)+1):
+                    index=flatten(startX+x,startY+y,startZ+z,startW+w,model["width"],model["height"],model["length"],model["trength"])
+                    model["col"][index]=color
+
+#For now these just rotate in 90 degree increments widdershins amount times. More advanced rotation tools may come later
+
+#Rotates widdershins X->Z 90 degrees amount times
+def rotateXZ(model,amount=1):
+    amount=amount%4
+    if (amount==0):
+        return
+    elif (amount>1):
+        rotateXZ(model,(amount-1))
+
+    bulk=model["width"]*model["height"]*model["length"]*model["trength"]
+    col=[[0,0,0,0]]*bulk
+    index=0
+    for w in range(model["trength"]):
+        for z in range(model["length"]):
+            for y in range(model["height"]):
+                for x in range(model["width"]):
+                    col[flatten(model["length"]-z-1,y,x,w,model["length"],model["height"],model["width"],model["trength"])]=model["col"][flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])]
+    model["col"]=col
+    length=model["length"]
+    model["length"]=model["width"]
+    model["width"]=length
+
+def rotateYZ(model,amount=1):
+    amount=amount%4
+    if (amount==0):
+        return
+    elif (amount>1):
+        rotateYZ(model,(amount-1))
+
+    bulk=model["width"]*model["height"]*model["length"]*model["trength"]
+    col=[[0,0,0,0]]*bulk
+    index=0
+    for w in range(model["trength"]):
+        for z in range(model["length"]):
+            for y in range(model["height"]):
+                for x in range(model["width"]):
+                    col[flatten(x,model["length"]-z-1,y,w,model["width"],model["length"],model["height"],model["trength"])]=model["col"][flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])]
+    model["col"]=col
+    length=model["length"]
+    model["length"]=model["height"]
+    model["height"]=length
+
+def rotateWZ(model,amount=1):
+    amount=amount%4
+    if (amount==0):
+        return
+    elif (amount>1):
+        rotateWZ(model,(amount-1))
+
+    bulk=model["width"]*model["height"]*model["length"]*model["trength"]
+    col=[[0,0,0,0]]*bulk
+    index=0
+    for w in range(model["trength"]):
+        for z in range(model["length"]):
+            for y in range(model["height"]):
+                for x in range(model["width"]):
+                    col[flatten(x,y,w,model["length"]-z-1,model["width"],model["height"],model["trength"],model["length"])]=model["col"][flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])]
+    model["col"]=col
+    length=model["length"]
+    model["length"]=model["trength"]
+    model["trength"]=length
+
+def rotateXY(model,amount=1):
+    amount=amount%4
+    if (amount==0):
+        return
+    elif (amount>1):
+        rotateXY(model,(amount-1))
+
+    bulk=model["width"]*model["height"]*model["length"]*model["trength"]
+    col=[[0,0,0,0]]*bulk
+    index=0
+    for w in range(model["trength"]):
+        for z in range(model["length"]):
+            for y in range(model["height"]):
+                for x in range(model["width"]):
+                    col[flatten(model["height"]-y-1,x,z,w,model["height"],model["width"],model["length"],model["trength"])]=model["col"][flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])]
+    model["col"]=col
+    height=model["height"]
+    model["height"]=model["width"]
+    model["width"]=height
+
+def rotateXW(model,amount=1):
+    amount=amount%4
+    if (amount==0):
+        return
+    elif (amount>1):
+        rotateXW(model,(amount-1))
+
+    bulk=model["width"]*model["height"]*model["length"]*model["trength"]
+    col=[[0,0,0,0]]*bulk
+    index=0
+    for w in range(model["trength"]):
+        for z in range(model["length"]):
+            for y in range(model["height"]):
+                for x in range(model["width"]):
+                    col[flatten(model["trength"]-w-1,y,z,x,model["trength"],model["height"],model["length"],model["width"])]=model["col"][flatten(x,y,z,w,model["width"],model["height"],model["length"],model["trength"])]
+    model["col"]=col
+    trength=model["trength"]
+    model["trength"]=model["width"]
+    model["width"]=trength
+
+def drawModel(canvas,model,x,y,z,w):
+    """Draws a model on the canvas model with lower left kata inner corner at specified coordinates
+
+    Parameters:
+    canvas (Dict): a hoxel model to be drawn on
+    model (Dict): the hoxel model to draw
+    x (int): the x coordinate to draw the model at
+    y (int): the y coordinate to draw the model at
+    z (int): the z coordinate to draw the model at
+    w (int): the w coordinate to draw the model at
+    """
+    for cw in range(max(w,0),min(w+model["trength"],canvas["trength"])):
+        for cz in range(max(z,0),min(z+model["length"],canvas["length"])):
+            for cy in range(max(y,0),min(y+model["height"],canvas["height"])):
+                for cx in range(max(x,0),min(x+model["width"],canvas["width"])):
+                    setHox(canvas,model["col"][flatten(cx-x,cy-y,cz-z,cw-w,model["width"],model["height"],model["length"],model["trength"])],cx,cy,cz,cw)
+
+def drawSliceGrid(frame,bg=[0,0,0,0]):
+    """Returns an image of the model specified by the frame variable with the the background color filling in the gaps (transparency by default)
+
+    Parameters:
+    frame (Dict): the hoxel model to draw
+    bg (int[]): the background color in RGBA format. [0,0,0,0] by default.
+    """
+    image=Image.new("RGBA", (frame["width"]*frame["height"]+1+frame["height"], frame["length"]*frame["trength"]+1+frame["trength"]), tuple(bg))
+    for x in range(frame["width"]):
+        for y in range(frame["height"]):
+            for z in range(frame["length"]):
+                for w in range(frame["trength"]):
+                    image.putpixel([x+1+(frame["width"]+1)*y,image.height-1-(z+1+(frame["length"]+1)*w)],tuple(frame["col"][flatten(x,y,z,w,frame["width"],frame["height"],frame["length"],frame["trength"])]))
+    return image
+
+def exportSliceGrid(path,frame,bg=[0,0,0,0]):
+    """Saves an image of the slice grid of the model specified by the frame variable with the the background color filling in the gaps (transparency by default) to the specified path
+
+    Parameters:
+    path (Str): the path to save the image to
+    frame (Dict): the hoxel model to draw
+    bg (int[]): the background color in RGBA format. [0,0,0,0] by default.
+    """
+    drawSliceGrid(frame,bg).save(path)
+
+    
+

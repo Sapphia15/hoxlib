@@ -1,3 +1,6 @@
+
+#By Sapphia
+
 import json
 import os
 import traceback
@@ -6,8 +9,10 @@ import copy
 directory = "hox"
 TO_HOX = 0
 TO_QOH = 1
+TO_SCH = 3
 HOX=2
 QOH=3
+SCH = 5
 
 EOF=bytes([0]*7+[1])
 
@@ -23,7 +28,74 @@ INDEX=int("00000000",2)
 DIF=int("01000000",2)
 LUMA=int("10000000",2)
 RUN=int("11000000",2)
+#Redjard integer encoding/decoding functions written by redjard
+#---------------------------------------------------------------------------------
+def serializeInt(num:int):
+    
+    num *= 2
+    if num < 0:
+        num = -num -1
+    
+    return serialize_uint(num)
 
+#Unsigned Int Serialization:
+
+#Big endian
+#The integer is serialized as the value of an Integer Chunk
+#  
+#Integer Chunk:
+#  length of integer value in bytes : 1 byte with non 0 value and a bias of 1 if preceded by x00, otherwise the bias is 0 or x00 followed by an integer chunk
+#  value of integer : the value of the integer that this chunk encodes using the number of bytes indicated by the length of integer value in bytes
+#
+#Examples:
+#
+#  /x01/x14 encodes 20 because the first byte indicates that the integer is one byte long while the second byte indicates the encoded value
+#  /x02/x01/x00 encodes 256 because the first byte indicates that the integer is two bytes long while the two bytes that follow indicate the encoded values as a two byte int
+#  /x00/x01/x01/x01/x01/(x00)*256 encodes 16^512 because the first byte indicates that the integer length is encoded as an Integer Chunk instead of as one byte so the second byte indicates that the value of of the length of the integer that inticates the length of the integer being serialized is 2 becuase it has a bias of 1 since it follows an x00 byte. The third and fourth bit indicate the value of the length of the integer being encoded as a two byte integer which is 257. The 257 bytes that come after the fourth byte encode the value of the integer being serialized as a 257 byte integer which has the value of 16^512.
+def serialize_uint(num:int):
+    
+    bitstr = b''
+    while num:
+        bitstr += bytes([ num %2**8 ])
+        num //= 2**8
+    bitstr = bitstr[::-1]
+    
+    if len(bitstr) == 0:
+        bitstr = b'\x00'
+    
+    if len(bitstr) >= 2**8:
+        return b'\x00' + serialize_uint(len(bitstr)-2**8) + bitstr
+    
+    return bytes([len(bitstr)]) + bitstr
+
+def unserializeInt(bitstr:int):
+    
+    num, bitstr = unserialize_uint(bitstr)
+    
+    if num %2:
+        num = -num -1
+    num >>= 1  # same as  //= 2  but faster
+    
+    return num, bitstr
+
+def unserialize_uint(bitstr:int):
+    
+    if bitstr[0] == 0:
+        numlen, bitstr = unserialize_uint(bitstr[1:])
+        numlen += 2**8
+    else:
+        numlen, bitstr = bitstr[0], bitstr[1:]
+    
+    if numlen > len(bitstr):
+        raise ValueError('Incomplete integer')
+    
+    num = 0
+    for bit in bitstr[:numlen]:
+        num *= 2**8
+        num += bit
+    
+    return num, bitstr[numlen:]
+#---------------------------------------------------------------------------------
 
 def flatten(x,y,z,w,width,height,length,trength):
     return x+y*width+z*width*height+w*width*height*length
@@ -82,14 +154,14 @@ for i in range(8*8*8*8):
         print("Error! bad test!")
         input()
 """
-#returns a dictionary with data about a hoxel model including the color array, the dimensions, the material array (if applicable), the material color array (if applicable), the json data (if applicable), and the channels (if applicable)
+#returns a dictionary with data about a hoxel model including the color array, the dimensions, the material array (if applicable), the material color array (if applicable), the json data (if applicable), the block type array (if applicable), and the channels (if applicable)
 def loadHoxelModelData(path):
     filetype=HOX
-    if (path.endswith(".qoh")):
+    if (path.endswith(".qoh") or path.endswith(".qob")):
         filetype=QOH
-    elif (path.endswith(".qob")):
-        filetype=QOH
-
+    elif (path.endswith(".4dmscheme") or path.endswith(".4dm") or path.endswith(".sch")):
+        filetype=SCH
+    
     if (filetype==HOX):
         data={}
         col=[]
@@ -129,7 +201,7 @@ def loadHoxelModelData(path):
                 col[flatten(item["i"][0],item["i"][1],item["i"][2],item["i"][3],width,height,length,trength)]=[int(color[0]*255),int(color[1]*255), int(color[2]*255), color[3]] #non-alpha channels are stored in a range from 0.0 to 1.0 so we need to convert those to integers between 0 and 255
             #return a dictionary with the full data, the width, height, length, and trength, the material colors, and the array of hoxels by color, and the array of hoxels by material
             return {"data":data,"matColor":matColor,"col":col, "mat":mat,"width":width,"height":height,"length":length,"trength":trength}
-    else:
+    elif filetype==QOH:
         col=[]
         bins=bytearray("qohf","utf-8")
         prehox=[0,0,0,255]
@@ -231,6 +303,43 @@ def loadHoxelModelData(path):
                 #We always decode at least one bit
                 i=i+1
             return {"channels":channels,"col":col,"width":width,"height":height,"length":length,"trength":trength}
+    else:
+        blk=[]
+        col=[]
+        bins=bytearray("qohf","utf-8")
+        width=0
+        height=0
+        length=0
+        trength=0
+        with open(path, "rb") as f:
+            #print("Loading "+filename+"...")
+            #print("Converting data...")
+            bins=f.read()
+            width, bins=unserialize_uint(bins)
+            height, bins=unserialize_uint(bins)
+            length, bins=unserialize_uint(bins)
+            trength, bins=unserialize_uint(bins)
+            check, bins=unserialize_uint(bins) #this should set check to 0 if the file is 4D. If the file is of higher dimension this number will be larger than 0
+            if (check != 0 ):
+                print("Error: file has more than 4 dimesnions")
+                return
+            blk=[0]*width*height*length*trength
+            col=[[0,0,0,0]]*width*height*length*trength
+            c=0
+            for i in range(len(bins)-1):
+                btype=int.fromBytes(bins[i],"big")
+                i=i+1
+                runLength=int.fromBytes(bins[i])
+                if (runLength>0):
+                    blk[c:c-1+runLength]=btype
+                    #schematic files only have one byte that defines blocktype so we use greyscale based on blockID for color (with ID 0, air being tranparent)
+                    #The color array was initialized with 0s (tranparency) so we ony need to set the the color if the block ID is not 0
+                    if (btype!=0):
+                        col[c:c-1+runLength]=[btype,btype,btype,255]
+            return {"blk":blk,"col":col,"width":width,"height":height,"length":length,"trength":trength}
+                
+
+
         
 #returns a hoxel model as a dictionary with the color array, width, height, length, and trength.
 def loadHoxelModel(path):
